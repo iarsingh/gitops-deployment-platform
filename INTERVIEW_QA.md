@@ -13,12 +13,13 @@ I would demonstrate the linked implementation or examples and distinguish that e
 ## 2. How is this repository organized?
 
 - [`src/gitops/main.py`](src/gitops/main.py): Deployment manifests or chart templates.
+- [`src/gitops/ops.py`](src/gitops/ops.py): Deployment manifests or chart templates.
 - [`src/gitops/compare.py`](src/gitops/compare.py): Deployment manifests or chart templates.
 - [`requirements.txt`](requirements.txt): Implementation or supporting configuration.
 - [`src/gitops/__init__.py`](src/gitops/__init__.py): Deployment manifests or chart templates.
-- [`tests/test_gitops.py`](tests/test_gitops.py): Executable checks and regression examples.
-- [`.github/workflows/ci.yml`](.github/workflows/ci.yml): GitHub Actions job definitions.
-- [`README.md`](README.md): Project explanations or operating notes.
+- [`Dockerfile`](Dockerfile): Container build/service configuration.
+- [`Makefile`](Makefile): Implementation or supporting configuration.
+- [`docker-compose.yml`](docker-compose.yml): Container build/service configuration.
 
 [PROJECT_ARCHITECTURE.md](PROJECT_ARCHITECTURE.md) contains the component diagram and the implementation walkthrough.
 
@@ -34,9 +35,16 @@ def compare(desired, observed):
 
 The implementation calls `bool`. In an interview, trace those calls in execution order using a fixture input.
 
-## 4. Where would you add input-validation tests?
+## 4. What input validation and failure behavior are implemented?
 
-Start with the handlers `post_compare` in [`src/gitops/main.py`](src/gitops/main.py#L7). Use the request schema or body access in each handler to build valid, missing-field, wrong-type, and boundary inputs. I would inspect existing tests before claiming coverage.
+Explicit failure paths include:
+
+- `HTTPException(status_code=404, detail='workspace not found')` in [`src/gitops/ops.py`](src/gitops/ops.py#L77).
+- `HTTPException(status_code=404, detail='job not found')` in [`src/gitops/ops.py`](src/gitops/ops.py#L100).
+- `HTTPException(status_code=404, detail='job not found')` in [`src/gitops/ops.py`](src/gitops/ops.py#L109).
+- `HTTPException(status_code=403, detail='production apply is disabled in this lab')` in [`src/gitops/ops.py`](src/gitops/ops.py#L113).
+
+I would test both the condition that reaches each exception and the caller that translates it. An explicit raise does not mean every malformed input or dependency failure is handled.
 
 ## 5. Which test would you use to demonstrate correctness?
 
@@ -57,13 +65,22 @@ This is a concrete regression example from the repository. Its assertions establ
 
 ## 6. What HTTP interface does the code expose?
 
-- `POST /compare` → `post_compare` in [`src/gitops/main.py`](src/gitops/main.py#L7).
+- `POST /compare` → `post_compare` in [`src/gitops/main.py`](src/gitops/main.py#L9).
+- `GET /readyz` → `readyz` in [`src/gitops/ops.py`](src/gitops/ops.py#L44).
+- `POST /workspaces` → `create_workspace` in [`src/gitops/ops.py`](src/gitops/ops.py#L49).
+- `GET /workspaces` → `list_workspaces` in [`src/gitops/ops.py`](src/gitops/ops.py#L66).
+- `POST /workspaces/{workspace_id}/jobs` → `create_job` in [`src/gitops/ops.py`](src/gitops/ops.py#L73).
+- `GET /jobs/{job_id}` → `get_job` in [`src/gitops/ops.py`](src/gitops/ops.py#L96).
+- `POST /jobs/{job_id}/approve` → `approve_job` in [`src/gitops/ops.py`](src/gitops/ops.py#L105).
+- `GET /audit` → `audit` in [`src/gitops/ops.py`](src/gitops/ops.py#L122).
 
 These are literal decorators. Application/router prefixes, authentication, and middleware must be checked in the corresponding setup code.
 
-## 7. How would you investigate data ownership and persistence?
+## 7. Where does state live, and what happens with multiple workers?
 
-Trace the data/configuration files and the code that reads or writes them in the component table. Identify which files are examples, which records are mutable, and which external store is actually configured. I would document those facts before discussing retention, backup, or tenant isolation.
+Module-level containers include `_WORKSPACES`, `_JOBS`, `_AUDIT`, `_METRICS` in [`src/gitops/ops.py`](src/gitops/ops.py).
+
+These containers belong to a Python process. Inspect which are constant fixtures and which are mutated. Mutable process state needs an explicit shared-storage or synchronization strategy before multiple workers can provide consistent behavior.
 
 ## 8. How would another engineer reproduce your walkthrough?
 
@@ -95,3 +112,9 @@ In [`src/gitops/compare.py`](src/gitops/compare.py#L1), `compare(desired, observ
 Its result is defined by:
 
 - `{'drifted': bool(diffs), 'diffs': diffs, 'applied': False}`
+
+## 12. What does the operations plane add, and where is its limit?
+
+[`src/gitops/ops.py`](src/gitops/ops.py) declares `GET /readyz`, `POST /workspaces`, `GET /workspaces`, `POST /workspaces/{workspace_id}/jobs`, `GET /jobs/{job_id}`, `POST /jobs/{job_id}/approve`, `GET /audit`, `GET /metrics`. Inspect the application’s `include_router` call for its URL prefix.
+
+Its state containers are `_WORKSPACES`, `_JOBS`, `_AUDIT`, `_METRICS`. The job-approval handler defines whether a target is accepted or refused; check that branch and the associated tests instead of treating a recorded job as a successful infrastructure apply.
