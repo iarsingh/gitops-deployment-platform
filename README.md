@@ -1,5 +1,12 @@
 # GitOps Deployment Platform
 
+## Overview
+
+A drift reporter for GitOps-style deployments. `POST /compare` takes the desired image and replica count along with the observed record, then names each field that differs. It never fixes the drift itself: `applied` stays false, because Git is meant to be the only writer, not this API. A `/v1` ops API adds workspaces, tenant isolation, job approval and audit records.
+
+- **Built with:** Python, pytest, Docker, Docker Compose, GitHub Actions
+- **Scope:** Local lab with tests; it reports drift but does not apply changes, and production apply is refused.
+
 <!-- project-guide:start -->
 ## Project guide
 
